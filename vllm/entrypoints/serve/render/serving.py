@@ -256,7 +256,9 @@ class OpenAIServingRender:
             # For GPT-OSS.
             should_include_tools = tool_dicts is not None
             conversation, engine_inputs = self._make_request_with_harmony(
-                request, should_include_tools
+                request,
+                should_include_tools,
+                default_template_kwargs=self.default_chat_template_kwargs,
             )
 
         return conversation, engine_inputs
@@ -376,6 +378,7 @@ class OpenAIServingRender:
         self,
         request: ChatCompletionRequest,
         should_include_tools: bool = True,
+        default_template_kwargs: dict[str, Any] | None = None,
     ):
         """Build Harmony (GPT-OSS) messages and engine prompt from a chat request."""
         messages: list[OpenAIMessage] = []
@@ -385,15 +388,28 @@ class OpenAIServingRender:
         # for more info: see comment in `maybe_serialize_tool_calls`
         _mt.maybe_serialize_tool_calls(request)  # type: ignore[arg-type]
 
+        # Merge default template kwargs with request kwargs.
+        if default_template_kwargs is None:
+            default_template_kwargs = {}
+        chat_template_kwargs = merge_kwargs(
+            default_template_kwargs,
+            request.chat_template_kwargs,
+        )
+
         # Add system message.
         # NOTE: In Chat Completion API, browsing is enabled by default
         # if the model supports it. TODO: Support browsing.
         assert not self.supports_browsing
         assert not self.supports_code_interpreter
-        if (reasoning_effort := request.reasoning_effort) == "none":
+        reasoning_effort = chat_template_kwargs.get(
+            "reasoning_effort", request.reasoning_effort
+        )
+        if reasoning_effort == "none":
             raise ValueError(f"Harmony does not support {reasoning_effort=}")
         sys_msg = get_system_message(
+            model_identity=chat_template_kwargs.get("model_identity"),
             reasoning_effort=reasoning_effort,
+            start_date=chat_template_kwargs.get("start_date"),
             browser_description=None,
             python_description=None,
             with_custom_tools=should_include_tools,
